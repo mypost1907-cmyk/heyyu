@@ -6,10 +6,8 @@ const state = {
     recordingStartTime: null,
     timerInterval: null,
     currentEffect: 'normal',
-    audioContext: null,
-    analyser: null,
-    animationId: null,
-    recordedBlob: null,
+    currentAudio: null, // Audio management moved to state
+    audioInterval: null, // Interval management moved to state
     recognition: null,
     transcript: '',
     posts: [],
@@ -99,8 +97,12 @@ function playSpeech(post) {
         return;
     }
 
-    // Mevcut konuşmaları durdur
+    // Mevcut konuşmaları durdur ve intervalleri temizle
     window.speechSynthesis.cancel();
+    if (state.audioInterval) clearInterval(state.audioInterval);
+    if (state.currentAudio && !state.currentAudio.isSpeech) {
+        state.currentAudio.pause();
+    }
 
     const utterance = new SpeechSynthesisUtterance(post.transcript);
     utterance.lang = 'tr-TR';
@@ -171,8 +173,8 @@ function playSpeech(post) {
         resetTranscriptHighlight(post.id);
     };
 
-    // State yönetimi için dummy bir Audio objesi gibi davran
-    currentAudio = {
+    // State yönetimi
+    state.currentAudio = {
         postId: post.id,
         isSpeech: true,
         pause: () => {
@@ -374,11 +376,11 @@ function renderHomePage() {
                         
                         <div class="voice-effects" id="voiceEffects">
                             <div class="effects-grid">
-                                <button class="effect-btn active" onclick="setEffect('normal', this)" data-effect="normal">Normal</button>
-                                <button class="effect-btn" onclick="setEffect('robot', this)" data-effect="robot">🤖 Robot</button>
-                                <button class="effect-btn" onclick="setEffect('echo', this)" data-effect="echo">🎵 Echo</button>
-                                <button class="effect-btn" onclick="setEffect('chipmunk', this)" data-effect="chipmunk">🐿️ Tiz</button>
-                                <button class="effect-btn" onclick="setEffect('deep', this)" data-effect="deep">🦍 Kalın</button>
+                                <button class="effect-btn ${state.currentEffect === 'normal' ? 'active' : ''}" onclick="setEffect('normal', this)" data-effect="normal">Normal</button>
+                                <button class="effect-btn ${state.currentEffect === 'robot' ? 'active' : ''}" onclick="setEffect('robot', this)" data-effect="robot">🤖 Robot</button>
+                                <button class="effect-btn ${state.currentEffect === 'echo' ? 'active' : ''}" onclick="setEffect('echo', this)" data-effect="echo">🎵 Echo</button>
+                                <button class="effect-btn ${state.currentEffect === 'chipmunk' ? 'active' : ''}" onclick="setEffect('chipmunk', this)" data-effect="chipmunk">🐿️ Tiz</button>
+                                <button class="effect-btn ${state.currentEffect === 'deep' ? 'active' : ''}" onclick="setEffect('deep', this)" data-effect="deep">🦍 Kalın</button>
                             </div>
                         </div>
                         
@@ -720,7 +722,7 @@ window.toggleSpeed = (id) => {
     if (badge) badge.textContent = `${next}x`;
 
     // If playing, update immediately
-    if (window.speechSynthesis.speaking && currentAudio && currentAudio.postId === id) {
+    if (window.speechSynthesis.speaking && state.currentAudio && state.currentAudio.postId === id) {
         // SpeechSynthesis cannot update rate mid-speech easily without restart.
         // We will just cancel and restart at current position? Too complex for MVP.
         // Just restart.
@@ -807,35 +809,33 @@ function renderPageCurrent() {
 }
 
 // Audio Logic for Posts
-let currentAudio = null;
-let intervalId = null;
-
+// Audio Logic for Posts (Globals moved to state)
 window.playPostAudio = (postId) => {
     const post = state.posts.find(p => p.id === postId);
     if (!post) return;
 
     // Eğer zaten çalıyorsa durdur
-    if (currentAudio && currentAudio.postId === postId) {
-        if (currentAudio.isSpeech) {
+    if (state.currentAudio && state.currentAudio.postId === postId) {
+        if (state.currentAudio.isSpeech) {
             window.speechSynthesis.cancel();
         } else {
-            currentAudio.pause();
+            state.currentAudio.pause();
         }
-        clearInterval(intervalId);
+        clearInterval(state.audioInterval);
         updatePlayIcon(postId, false);
-        currentAudio = null;
+        state.currentAudio = null;
         return;
     }
 
     // Başka bir şey çalıyorsa durdur
-    if (currentAudio) {
-        if (currentAudio.isSpeech) {
+    if (state.currentAudio) {
+        if (state.currentAudio.isSpeech) {
             window.speechSynthesis.cancel();
         } else {
-            currentAudio.pause();
+            state.currentAudio.pause();
         }
-        updatePlayIcon(currentAudio.postId, false);
-        clearInterval(intervalId);
+        updatePlayIcon(state.currentAudio.postId, false);
+        clearInterval(state.audioInterval);
     }
 
     // Mock post ise Speech Synthesis kullan
@@ -851,29 +851,29 @@ window.playPostAudio = (postId) => {
 
     if (!post.audioUrl) return;
 
-    currentAudio = new Audio(post.audioUrl);
-    currentAudio.postId = postId;
-    currentAudio.playbackRate = 1.0;
+    state.currentAudio = new Audio(post.audioUrl);
+    state.currentAudio.postId = postId;
+    state.currentAudio.playbackRate = 1.0;
 
     updatePlayIcon(postId, true);
 
-    currentAudio.play();
+    state.currentAudio.play();
 
     // Progress loop
-    intervalId = setInterval(() => {
-        if (!currentAudio || currentAudio.isSpeech) return;
-        const pct = (currentAudio.currentTime / currentAudio.duration) * 100;
+    state.audioInterval = setInterval(() => {
+        if (!state.currentAudio || state.currentAudio.isSpeech) return;
+        const pct = (state.currentAudio.currentTime / state.currentAudio.duration) * 100;
         const progressEl = document.getElementById(`progress-${postId}`);
         const timeEl = document.getElementById(`time-${postId}`);
 
         if (progressEl) progressEl.style.width = `${pct}%`;
-        if (timeEl) timeEl.textContent = `00:0${Math.floor(currentAudio.currentTime)}`;
+        if (timeEl) timeEl.textContent = `00:0${Math.floor(state.currentAudio.currentTime)}`;
 
-        if (currentAudio.ended) {
-            clearInterval(intervalId);
+        if (state.currentAudio.ended) {
+            clearInterval(state.audioInterval);
             updatePlayIcon(postId, false);
             if (progressEl) progressEl.style.width = '0%';
-            currentAudio = null;
+            state.currentAudio = null;
         }
     }, 100);
 };

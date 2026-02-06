@@ -765,28 +765,7 @@ body::before {
     font-family: 'Courier New', monospace;
 }
 
-.speed-control {
-    display: flex;
-    gap: var(--spacing-xs);
-}
 
-.speed-btn {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 0.8rem;
-    transition: all var(--transition-fast);
-}
-
-.speed-btn:hover,
-.speed-btn.active {
-    background: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
-}
 
 .speed-control {
     cursor: pointer;
