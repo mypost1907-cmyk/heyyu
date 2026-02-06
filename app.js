@@ -91,32 +91,95 @@ const elements = {
     profileBtn: document.getElementById('profileBtn')
 };
 
-// ==================== Audio Generation (Synth) ====================
-// Gerçekçi ses dosyaları yerine, her post için farklı tonda melodi üreten synth
-function generateSynthAudio(duration = 2, seed = 1) {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const sampleRate = audioContext.sampleRate;
-    const buffer = audioContext.createBuffer(1, duration * sampleRate, sampleRate);
-    const data = buffer.getChannelData(0);
-
-    // Basit FM Synthesis benzeri ses üretimi
-    const freq = 200 + (seed % 500); // Kullanıcıya özel frekans
-    const speed = 5 + (seed % 10);
-
-    for (let i = 0; i < buffer.length; i++) {
-        // Ana ses + Modülasyon
-        const t = i / sampleRate;
-        const wave = Math.sin(2 * Math.PI * freq * t + Math.sin(2 * Math.PI * speed * t));
-
-        // Zarf (Envelope) - Başlangıç ve bitiş yumuşatma
-        let envelope = 1;
-        if (t < 0.1) envelope = t / 0.1; // Attack
-        if (t > duration - 0.5) envelope = (duration - t) / 0.5; // Decay
-
-        data[i] = wave * 0.3 * envelope;
+// ==================== Audio Generation (Speech Synthesis) ====================
+// Mock postlar için gerçekçi insan sesi (Web Speech API) kullanan sistem
+function playSpeech(post) {
+    if (!window.speechSynthesis) {
+        alert("Tarayıcınız ses sentezini desteklemiyor.");
+        return;
     }
 
-    return audioBufferToBlob(buffer);
+    // Mevcut konuşmaları durdur
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(post.transcript);
+    utterance.lang = 'tr-TR';
+
+    // Effect ayarları
+    switch (post.effect) {
+        case 'robot':
+            utterance.pitch = 0.1;
+            utterance.rate = 0.8;
+            break;
+        case 'chipmunk':
+            utterance.pitch = 2.0;
+            utterance.rate = 1.4;
+            break;
+        case 'deep':
+            utterance.pitch = 0.5;
+            utterance.rate = 0.7;
+            break;
+        case 'echo':
+            utterance.pitch = 1.0;
+            utterance.rate = 0.9;
+            break;
+        default:
+            utterance.pitch = 1.0;
+            utterance.rate = 1.0;
+    }
+
+    // Ses seçimi (Varsa Türkçe seslerden birini seç)
+    const voices = window.speechSynthesis.getVoices();
+    // Öncelikli olarak "Google Türkçe" veya benzeri kaliteli sesleri arayalım
+    const trVoice = voices.find(v => v.lang.includes('tr') && (v.name.includes('Google') || v.name.includes('Microsoft'))) || voices.find(v => v.lang.includes('tr'));
+    
+    if (trVoice) {
+        utterance.voice = trVoice;
+    } else {
+        console.warn("Türkçe ses bulunamadı, varsayılan ses kullanılıyor.");
+    }
+
+    // UI Güncelleme
+    updatePlayIcon(post.id, true);
+
+    // Progress Simülasyonu
+    let startTime = Date.now();
+    let estimatedDuration = post.transcript.length * 100; // Kabaca tahmin
+    const progressEl = document.getElementById(`progress-${post.id}`);
+    const timeEl = document.getElementById(`time-${post.id}`);
+
+    const progressInterval = setInterval(() => {
+        if (!window.speechSynthesis.speaking) {
+            clearInterval(progressInterval);
+            return;
+        }
+        const elapsed = Date.now() - startTime;
+        const pct = Math.min((elapsed / estimatedDuration) * 100, 95); // 95'te bekle
+        if (progressEl) progressEl.style.width = `${pct}%`;
+        if (timeEl) timeEl.textContent = `00:0${Math.floor(elapsed / 1000)}`;
+    }, 100);
+
+    utterance.onend = () => {
+        clearInterval(progressInterval);
+        updatePlayIcon(post.id, false);
+        if (progressEl) progressEl.style.width = '100%';
+        setTimeout(() => { if (progressEl) progressEl.style.width = '0%'; }, 500);
+        currentAudio = null;
+    };
+
+    utterance.onerror = () => {
+        clearInterval(progressInterval);
+        updatePlayIcon(post.id, false);
+    };
+
+    // State yönetimi için dummy bir Audio objesi gibi davran
+    currentAudio = {
+        postId: post.id,
+        isSpeech: true,
+        pause: () => window.speechSynthesis.cancel()
+    };
+
+    window.speechSynthesis.speak(utterance);
 }
 
 // ==================== Data Init ====================
@@ -141,15 +204,16 @@ function initDemoData() {
                 avatar: `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect fill='${user.avatarColor.replace('#', '%23')}' width='40' height='40'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='16' font-family='Arial'%3E${user.name[0]}%3C/text%3E%3C/svg%3E`
             },
             transcript: text,
-            effect: ['normal', 'robot', 'echo', 'chipmunk', 'deep'][Math.floor(Math.random() * 5)],
+            effect: 'normal', // Hepsini normal insan sesi yap
             timestamp: new Date(Date.now() - timeAgo),
             likes: Math.floor(Math.random() * 5000),
             comments: Math.floor(Math.random() * 500),
             shares: Math.floor(Math.random() * 200),
             saved: Math.random() > 0.8,
             liked: Math.random() > 0.7,
-            audioBlob: null, // Dinamik oluşturulacak
-            audioUrl: null   // Dinamik oluşturulacak
+            audioBlob: null,
+            audioUrl: null,
+            isMock: true // Mock data olduğunu belirt
         };
 
         state.posts.push(post);
@@ -597,25 +661,41 @@ window.playPostAudio = (postId) => {
     if (!post) return;
 
     // Eğer zaten çalıyorsa durdur
-    if (currentAudio && !currentAudio.paused && currentAudio.postId === postId) {
-        currentAudio.pause();
+    if (currentAudio && currentAudio.postId === postId) {
+        if (currentAudio.isSpeech) {
+            window.speechSynthesis.cancel();
+        } else {
+            currentAudio.pause();
+        }
         clearInterval(intervalId);
         updatePlayIcon(postId, false);
+        currentAudio = null;
         return;
     }
 
     // Başka bir şey çalıyorsa durdur
     if (currentAudio) {
-        currentAudio.pause();
+        if (currentAudio.isSpeech) {
+            window.speechSynthesis.cancel();
+        } else {
+            currentAudio.pause();
+        }
         updatePlayIcon(currentAudio.postId, false);
         clearInterval(intervalId);
     }
 
-    // Ses yoksa üret (Lazy generation)
-    if (!post.audioUrl) {
-        if (!post.audioBlob) post.audioBlob = generateSynthAudio(Math.random() * 5 + 3, postId); // 3-8sn rastgele ses
+    // Mock post ise Speech Synthesis kullan
+    if (post.isMock) {
+        playSpeech(post);
+        return;
+    }
+
+    // Ses yoksa (Kullanıcı kaydı ise ama url yoksa - normalde olmaz ama güvenlik için)
+    if (!post.audioUrl && post.audioBlob) {
         post.audioUrl = URL.createObjectURL(post.audioBlob);
     }
+
+    if (!post.audioUrl) return;
 
     currentAudio = new Audio(post.audioUrl);
     currentAudio.postId = postId;
@@ -627,7 +707,7 @@ window.playPostAudio = (postId) => {
 
     // Progress loop
     intervalId = setInterval(() => {
-        if (!currentAudio) return;
+        if (!currentAudio || currentAudio.isSpeech) return;
         const pct = (currentAudio.currentTime / currentAudio.duration) * 100;
         const progressEl = document.getElementById(`progress-${postId}`);
         const timeEl = document.getElementById(`time-${postId}`);
@@ -639,6 +719,7 @@ window.playPostAudio = (postId) => {
             clearInterval(intervalId);
             updatePlayIcon(postId, false);
             if (progressEl) progressEl.style.width = '0%';
+            currentAudio = null;
         }
     }, 100);
 };
