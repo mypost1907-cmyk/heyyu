@@ -658,9 +658,7 @@ function renderPosts(postsToRender) {
                         <line x1="12" y1="19" x2="12" y2="23"></line>
                         <line x1="8" y1="23" x2="16" y2="23"></line>
                     </svg>
-                    <span>Sesli Yorum</span>
-                </button>
-                    <span>${post.comments}</span>
+                    <span id="comment-count-${post.id}">${post.comments}</span>
                 </button>
                 <button class="action-btn" onclick="toggleShare(${post.id})">
                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -804,9 +802,12 @@ function stopCommentRecording(postId) {
         clearInterval(commentTimer);
         btn.innerHTML = `
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
             </svg>
-            <span>Sesli Yorum</span>
+            <span id="comment-count-${postId}">${post.comments}</span>
         `;
     }
 
@@ -814,16 +815,10 @@ function stopCommentRecording(postId) {
     const post = state.posts.find(p => p.id === postId);
     if (post) {
         post.comments++;
-        // Find comment count in DOM (sibling of button) - Bit hacky structure dependent
-        // Better: renderPosts adds ID to comment count span, but let's re-render or traverse
-        // Re-render might interrupt playback. Let's traverse.
-        // Structure: button -> span (text) ... span (count) is next sibling in renderPosts?
-        // Wait, renderPosts structure: button (comment) ... span (count)
-
-        // Actually looking at renderPosts line 664: <span>${post.comments}</span> is AFTER the button.
-        const btn = document.getElementById(`comment-btn-${postId}`);
-        if (btn && btn.nextElementSibling) {
-            btn.nextElementSibling.textContent = post.comments;
+        // Güncellenmiş ID'li span kullanarak yorum sayısını güncelle
+        const commentCountEl = document.getElementById(`comment-count-${postId}`);
+        if (commentCountEl) {
+            commentCountEl.textContent = post.comments;
         }
     }
 }
