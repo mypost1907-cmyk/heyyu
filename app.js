@@ -34,18 +34,18 @@ const state = {
 
 // ==================== Mock Data Generation ====================
 const mockUsers = [
-    { name: 'Cem Yılmaz', username: '@cmylmz', bio: 'Komedyen, Aktör, Karikatürist.', avatarColor: '#E63946' },
-    { name: 'Tarkan', username: '@tarkan', bio: 'Megastar', avatarColor: '#1D3557' },
-    { name: 'Elon Musk', username: '@elonmusk', bio: 'Mars & Cars 🚀', avatarColor: '#457B9D' },
-    { name: 'Sezen Aksu', username: '@sezen', bio: 'Minik Serçe', avatarColor: '#A8DADC' },
-    { name: 'Fatih Terim', username: '@imparator', bio: 'Vazgeçtiğimiz an biteriz.', avatarColor: '#F4A261' },
-    { name: 'Teknoloji Gündemi', username: '@techtr', bio: 'En yeni teknoloji haberleri.', avatarColor: '#2A9D8F' },
-    { name: 'Seda Sayan', username: '@seda', bio: 'Sabahların Sultanı', avatarColor: '#E9C46A' },
-    { name: 'Acun Ilıcalı', username: '@acun', bio: 'Survivor 2026 Başlıyor!', avatarColor: '#264653' },
-    { name: 'NASA', username: '@nasa', bio: 'Exploring the universe.', avatarColor: '#0B3D91' },
-    { name: 'Netflix Türkiye', username: '@netflixtr', bio: 'Tudum.', avatarColor: '#E50914' },
-    { name: 'Spotify TR', username: '@spotifytr', bio: 'Müzik seninle.', avatarColor: '#1DB954' },
-    { name: 'Yemek Sepeti', username: '@yemeksepeti', bio: 'Acıktın mı?', avatarColor: '#EA001B' }
+    { name: 'Cem Yılmaz', username: '@cmylmz', bio: 'Komedyen, Aktör, Karikatürist.', avatarColor: '#E63946', gender: 'male' },
+    { name: 'Tarkan', username: '@tarkan', bio: 'Megastar', avatarColor: '#1D3557', gender: 'male' },
+    { name: 'Elon Musk', username: '@elonmusk', bio: 'Mars & Cars 🚀', avatarColor: '#457B9D', gender: 'male' },
+    { name: 'Sezen Aksu', username: '@sezen', bio: 'Minik Serçe', avatarColor: '#A8DADC', gender: 'female' },
+    { name: 'Fatih Terim', username: '@imparator', bio: 'Vazgeçtiğimiz an biteriz.', avatarColor: '#F4A261', gender: 'male' },
+    { name: 'Teknoloji Gündemi', username: '@techtr', bio: 'En yeni teknoloji haberleri.', avatarColor: '#2A9D8F', gender: 'male' },
+    { name: 'Seda Sayan', username: '@seda', bio: 'Sabahların Sultanı', avatarColor: '#E9C46A', gender: 'female' },
+    { name: 'Acun Ilıcalı', username: '@acun', bio: 'Survivor 2026 Başlıyor!', avatarColor: '#264653', gender: 'male' },
+    { name: 'NASA', username: '@nasa', bio: 'Exploring the universe.', avatarColor: '#0B3D91', gender: 'male' },
+    { name: 'Netflix Türkiye', username: '@netflixtr', bio: 'Tudum.', avatarColor: '#E50914', gender: 'female' },
+    { name: 'Spotify TR', username: '@spotifytr', bio: 'Müzik seninle.', avatarColor: '#1DB954', gender: 'female' },
+    { name: 'Yemek Sepeti', username: '@yemeksepeti', bio: 'Acıktın mı?', avatarColor: '#EA001B', gender: 'male' }
 ];
 
 const conversations = [
@@ -128,58 +128,89 @@ function playSpeech(post) {
             utterance.rate = 1.0;
     }
 
-    // Ses seçimi (Varsa Türkçe seslerden birini seç)
+    // Ses seçimi (Cinsiyete göre ve Türkçe)
     const voices = window.speechSynthesis.getVoices();
-    // Öncelikli olarak "Google Türkçe" veya benzeri kaliteli sesleri arayalım
-    const trVoice = voices.find(v => v.lang.includes('tr') && (v.name.includes('Google') || v.name.includes('Microsoft'))) || voices.find(v => v.lang.includes('tr'));
-    
-    if (trVoice) {
-        utterance.voice = trVoice;
+    let trVoices = voices.filter(v => v.lang.includes('tr'));
+    let selectedVoice = null;
+
+    if (post.user.gender === 'female') {
+        selectedVoice = trVoices.find(v => v.name.includes('Female') || v.name.includes('Kadın') || v.name.includes('Zira') || v.name.includes('Emel'));
     } else {
-        console.warn("Türkçe ses bulunamadı, varsayılan ses kullanılıyor.");
+        selectedVoice = trVoices.find(v => v.name.includes('Male') || v.name.includes('Erkek') || v.name.includes('Tolga') || v.name.includes('David'));
     }
+
+    if (!selectedVoice) selectedVoice = trVoices[0]; // Fallback
+    if (selectedVoice) utterance.voice = selectedVoice;
+
+    // Scrolling Text Logic
+    utterance.onboundary = (event) => {
+        if (event.name === 'word') {
+            const charIndex = event.charIndex;
+            highlightWordInTranscript(post.id, charIndex);
+        }
+    };
 
     // UI Güncelleme
     updatePlayIcon(post.id, true);
 
-    // Progress Simülasyonu
-    let startTime = Date.now();
-    let estimatedDuration = post.transcript.length * 100; // Kabaca tahmin
-    const progressEl = document.getElementById(`progress-${post.id}`);
-    const timeEl = document.getElementById(`time-${post.id}`);
-
-    const progressInterval = setInterval(() => {
-        if (!window.speechSynthesis.speaking) {
-            clearInterval(progressInterval);
-            return;
-        }
-        const elapsed = Date.now() - startTime;
-        const pct = Math.min((elapsed / estimatedDuration) * 100, 95); // 95'te bekle
-        if (progressEl) progressEl.style.width = `${pct}%`;
-        if (timeEl) timeEl.textContent = `00:0${Math.floor(elapsed / 1000)}`;
-    }, 100);
-
     utterance.onend = () => {
-        clearInterval(progressInterval);
         updatePlayIcon(post.id, false);
-        if (progressEl) progressEl.style.width = '100%';
-        setTimeout(() => { if (progressEl) progressEl.style.width = '0%'; }, 500);
+        resetTranscriptHighlight(post.id);
         currentAudio = null;
     };
 
     utterance.onerror = () => {
-        clearInterval(progressInterval);
         updatePlayIcon(post.id, false);
+        resetTranscriptHighlight(post.id);
     };
 
     // State yönetimi için dummy bir Audio objesi gibi davran
     currentAudio = {
         postId: post.id,
         isSpeech: true,
-        pause: () => window.speechSynthesis.cancel()
+        pause: () => {
+            window.speechSynthesis.cancel();
+            resetTranscriptHighlight(post.id);
+        }
     };
 
     window.speechSynthesis.speak(utterance);
+}
+
+function highlightWordInTranscript(postId, charIndex) {
+    const container = document.querySelector(`.post-card[data-post-id="${postId}"] .post-transcript`);
+    if (!container) return;
+
+    // Basit kelime eşleştirme (span'lara data-index eklemiş olacağız)
+    // Ancak TTS charIndex kelimenin başını verir.
+    // Biz render ederken her kelimenin başlangıç indexini saklayacağız.
+    const spans = container.querySelectorAll('span.word');
+
+    // Find closest span to charIndex
+    let targetSpan = null;
+    spans.forEach(span => {
+        const spanIndex = parseInt(span.dataset.index);
+        if (spanIndex <= charIndex + 2) { // Tolerans
+            targetSpan = span;
+        }
+    });
+
+    if (targetSpan) {
+        // Remove previous highlights
+        spans.forEach(s => s.classList.remove('active-word'));
+        targetSpan.classList.add('active-word');
+
+        // Scroll to view
+        targetSpan.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+    }
+}
+
+function resetTranscriptHighlight(postId) {
+    const container = document.querySelector(`.post-card[data-post-id="${postId}"] .post-transcript`);
+    if (!container) return;
+    const spans = container.querySelectorAll('span.word');
+    spans.forEach(s => s.classList.remove('active-word'));
+    if (spans.length > 0) container.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 // ==================== Data Init ====================
@@ -229,8 +260,20 @@ function initDemoData() {
 // ==================== Helper: Parse Hashtags ====================
 function parseText(text) {
     if (!text) return '';
-    // Hashtag'leri linke çevir
-    return text.replace(/#(\w+)/g, '<span class="hashtag" onclick="handleHashtagClick(\'$1\')">#$1</span>');
+    // Hashtag'leri linke çevir (basit regex)
+    // Scrolling text için her kelimeyi span içine al ve offset index ekle
+
+    let currentIndex = 0;
+
+    // Geçici olarak HTML taglerini temizleyelim veya basitçe boşluklardan bölelim
+    // Daha sağlam bir çözüm için text node traverse gerekir ama bu demo için split yeterli
+
+    return text.replace(/#(\w+)/g, '<span class="hashtag" onclick="handleHashtagClick(\'$1\')">#$1</span>')
+        .split(' ').map(word => {
+            const span = `<span class="word" data-index="${text.indexOf(word, currentIndex)}">${word}</span>`;
+            currentIndex = text.indexOf(word, currentIndex) + word.length;
+            return span;
+        }).join(' ');
 }
 
 window.handleHashtagClick = (tag) => {
@@ -600,10 +643,15 @@ function renderPosts(postsToRender) {
                     </svg>
                     <span>${post.likes}</span>
                 </button>
-                <button class="action-btn">
+                <button class="action-btn" onclick="startCommentRecording(${post.id})" id="comment-btn-${post.id}">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                        <line x1="12" y1="19" x2="12" y2="23"></line>
+                        <line x1="8" y1="23" x2="16" y2="23"></line>
                     </svg>
+                    <span>Sesli Yorum</span>
+                </button>
                     <span>${post.comments}</span>
                 </button>
                 <button class="action-btn">
@@ -643,6 +691,70 @@ window.toggleSave = (id) => {
     if (post) {
         post.saved = !post.saved;
         renderPageCurrent();
+    }
+}
+
+// 6 Saniyelik Sesli Yorum Mantığı
+let commentRecorder = null;
+let commentChunks = [];
+let commentTimer = null;
+
+window.startCommentRecording = async (postId) => {
+    const btn = document.getElementById(`comment-btn-${postId}`);
+    if (!btn) return;
+
+    // Eğer zaten kaydediyorsa durdur
+    if (btn.classList.contains('recording')) {
+        // Durdur ve "Gönderildi" de
+        stopCommentRecording(postId);
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        commentRecorder = new MediaRecorder(stream);
+        commentChunks = [];
+
+        commentRecorder.ondataavailable = e => commentChunks.push(e.data);
+        commentRecorder.onstop = () => {
+            // Fake sending
+            alert("Sesli yorumunuz 6 saniye olarak kaydedildi ve gönderildi! 🚀");
+            stream.getTracks().forEach(t => t.stop());
+        };
+
+        commentRecorder.start();
+        btn.classList.add('recording');
+        btn.innerHTML = `<span style="color:red">● 6sn</span> Kaydediyor...`;
+
+        // 6 Saniye Limit
+        let timeLeft = 6;
+        commentTimer = setInterval(() => {
+            timeLeft--;
+            btn.innerHTML = `<span style="color:red">● ${timeLeft}sn</span> Kaydediyor...`;
+            if (timeLeft <= 0) {
+                stopCommentRecording(postId);
+            }
+        }, 1000);
+
+    } catch (err) {
+        alert("Mikrofon izni gerekli!");
+    }
+};
+
+function stopCommentRecording(postId) {
+    if (commentRecorder && commentRecorder.state === 'recording') {
+        commentRecorder.stop();
+    }
+    const btn = document.getElementById(`comment-btn-${postId}`);
+    if (btn) {
+        btn.classList.remove('recording');
+        clearInterval(commentTimer);
+        btn.innerHTML = `
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span>Sesli Yorum</span>
+        `;
     }
 }
 

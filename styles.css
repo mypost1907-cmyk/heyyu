@@ -779,6 +779,24 @@ body::before {
     color: var(--text-secondary);
     font-size: 0.95rem;
     line-height: 1.6;
+    max-height: 150px; /* Sabit yükseklik */
+    overflow-y: auto; /* Scroll */
+    scroll-behavior: smooth;
+    position: relative;
+}
+
+.post-transcript .word {
+    transition: all 0.2s ease;
+    padding: 2px 4px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.post-transcript .active-word {
+    background-color: var(--primary-color);
+    color: white;
+    transform: scale(1.1);
+    box-shadow: 0 0 10px rgba(102, 126, 234, 0.5);
 }
 
 .post-actions {
