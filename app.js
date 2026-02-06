@@ -105,27 +105,34 @@ function playSpeech(post) {
     const utterance = new SpeechSynthesisUtterance(post.transcript);
     utterance.lang = 'tr-TR';
 
-    // Effect ayarları
+    // Effect ayarları (Restore effects for playback)
     switch (post.effect) {
         case 'robot':
-            utterance.pitch = 0.1;
-            utterance.rate = 0.8;
+            utterance.pitch = 0.5; // Lower pitch for robot + monotonic (browser limits)
+            utterance.rate = 0.9;
             break;
         case 'chipmunk':
-            utterance.pitch = 2.0;
-            utterance.rate = 1.4;
+            utterance.pitch = 1.8; // High pitch
+            utterance.rate = 1.3;
             break;
         case 'deep':
-            utterance.pitch = 0.5;
-            utterance.rate = 0.7;
+            utterance.pitch = 0.4; // Low pitch
+            utterance.rate = 0.8;
             break;
         case 'echo':
+            // Echo is hard with TTS directly, simulate via slight delay? 
+            // Browser TTS doesn't support echo. We'll just keep pitch normal but maybe slow it down.
             utterance.pitch = 1.0;
-            utterance.rate = 0.9;
+            utterance.rate = 0.8;
             break;
         default:
             utterance.pitch = 1.0;
             utterance.rate = 1.0;
+    }
+
+    // Speed Control Override (User preference wins over effect rate)
+    if (post.playbackRate) {
+        utterance.rate = post.playbackRate;
     }
 
     // Ses seçimi (Cinsiyete göre ve Türkçe)
@@ -365,13 +372,13 @@ function renderHomePage() {
                         
                         <div class="timer" id="timer">00:00</div>
                         
-                        <div class="voice-effects" id="voiceEffects" style="display: none;">
+                        <div class="voice-effects" id="voiceEffects">
                             <div class="effects-grid">
-                                <button class="effect-btn active" data-effect="normal">Normal</button>
-                                <button class="effect-btn" data-effect="robot">🤖 Robot</button>
-                                <button class="effect-btn" data-effect="echo">🎵 Echo</button>
-                                <button class="effect-btn" data-effect="chipmunk">🐿️ Tiz</button>
-                                <button class="effect-btn" data-effect="deep">🦍 Kalın</button>
+                                <button class="effect-btn active" onclick="setEffect('normal', this)" data-effect="normal">Normal</button>
+                                <button class="effect-btn" onclick="setEffect('robot', this)" data-effect="robot">🤖 Robot</button>
+                                <button class="effect-btn" onclick="setEffect('echo', this)" data-effect="echo">🎵 Echo</button>
+                                <button class="effect-btn" onclick="setEffect('chipmunk', this)" data-effect="chipmunk">🐿️ Tiz</button>
+                                <button class="effect-btn" onclick="setEffect('deep', this)" data-effect="deep">🦍 Kalın</button>
                             </div>
                         </div>
                         
@@ -626,8 +633,8 @@ function renderPosts(postsToRender) {
                         </div>
                     </div>
 
-                    <div class="speed-control">
-                         <span style="font-size:0.8rem; opacity:0.7">1.0x</span>
+                    <div class="speed-control" onclick="toggleSpeed(${post.id})">
+                         <span class="speed-badge" id="speed-${post.id}">${post.playbackRate || 1.0}x</span>
                     </div>
                 </div>
             </div>
@@ -692,6 +699,41 @@ window.toggleSave = (id) => {
         post.saved = !post.saved;
         renderPageCurrent();
     }
+}
+window.toggleSpeed = (id) => {
+    const post = state.posts.find(p => p.id === id);
+    if (!post) return;
+
+    // Cycle: 1.0 -> 1.5 -> 2.0 -> 0.75 -> 1.0
+    const current = post.playbackRate || 1.0;
+    let next = 1.0;
+
+    if (current === 1.0) next = 1.5;
+    else if (current === 1.5) next = 2.0;
+    else if (current === 2.0) next = 0.75;
+    else next = 1.0;
+
+    post.playbackRate = next;
+
+    // Update UI
+    const badge = document.getElementById(`speed-${id}`);
+    if (badge) badge.textContent = `${next}x`;
+
+    // If playing, update immediately
+    if (window.speechSynthesis.speaking && currentAudio && currentAudio.postId === id) {
+        // SpeechSynthesis cannot update rate mid-speech easily without restart.
+        // We will just cancel and restart at current position? Too complex for MVP.
+        // Just restart.
+        window.speechSynthesis.cancel();
+        playSpeech(post);
+    }
+}
+
+// Effect selection for recording
+window.setEffect = (effect, btn) => {
+    state.currentEffect = effect;
+    document.querySelectorAll('.effect-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
 }
 
 // 6 Saniyelik Sesli Yorum Mantığı
@@ -942,7 +984,7 @@ document.getElementById('publishBtn').addEventListener('click', () => {
         transcript: "Yeni ses kaydı 🎙️ #heyyu",
         audioBlob: state.recordedBlob,
         audioUrl: URL.createObjectURL(state.recordedBlob),
-        effect: 'normal',
+        effect: state.currentEffect, // Save selected effect
         timestamp: new Date(),
         likes: 0,
         comments: 0,
