@@ -122,10 +122,9 @@ function playSpeech(post) {
             utterance.rate = 0.8;
             break;
         case 'echo':
-            // Echo is hard with TTS directly, simulate via slight delay? 
-            // Browser TTS doesn't support echo. We'll just keep pitch normal but maybe slow it down.
-            utterance.pitch = 1.0;
-            utterance.rate = 0.8;
+            // Echo simulation: Slower rate and slightly lower pitch to distinguish
+            utterance.pitch = 0.8;
+            utterance.rate = 0.6;
             break;
         default:
             utterance.pitch = 1.0;
@@ -663,13 +662,13 @@ function renderPosts(postsToRender) {
                 </button>
                     <span>${post.comments}</span>
                 </button>
-                <button class="action-btn">
+                <button class="action-btn" onclick="toggleShare(${post.id})">
                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
                         <polyline points="16 6 12 2 8 6"></polyline>
                         <line x1="12" y1="2" x2="12" y2="15"></line>
                     </svg>
-                    <span>${post.shares}</span>
+                    <span id="share-count-${post.id}">${post.shares}</span>
                 </button>
                  <button class="action-btn ${post.saved ? 'saved' : ''}" onclick="toggleSave(${post.id})" style="margin-left:auto">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="${post.saved ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
@@ -700,6 +699,16 @@ window.toggleSave = (id) => {
     if (post) {
         post.saved = !post.saved;
         renderPageCurrent();
+    }
+}
+
+window.toggleShare = (id) => {
+    const post = state.posts.find(p => p.id === id);
+    if (post) {
+        post.shares++;
+        const shareCountEl = document.getElementById(`share-count-${id}`);
+        if (shareCountEl) shareCountEl.textContent = post.shares;
+        alert("Ses paylaşıldı! 🚀");
     }
 }
 window.toggleSpeed = (id) => {
@@ -799,6 +808,23 @@ function stopCommentRecording(postId) {
             </svg>
             <span>Sesli Yorum</span>
         `;
+    }
+
+    // Update State & UI
+    const post = state.posts.find(p => p.id === postId);
+    if (post) {
+        post.comments++;
+        // Find comment count in DOM (sibling of button) - Bit hacky structure dependent
+        // Better: renderPosts adds ID to comment count span, but let's re-render or traverse
+        // Re-render might interrupt playback. Let's traverse.
+        // Structure: button -> span (text) ... span (count) is next sibling in renderPosts?
+        // Wait, renderPosts structure: button (comment) ... span (count)
+
+        // Actually looking at renderPosts line 664: <span>${post.comments}</span> is AFTER the button.
+        const btn = document.getElementById(`comment-btn-${postId}`);
+        if (btn && btn.nextElementSibling) {
+            btn.nextElementSibling.textContent = post.comments;
+        }
     }
 }
 
@@ -945,6 +971,7 @@ async function startRecording() {
         elements.recordBtn.classList.add('recording');
         elements.recordBtn.querySelector('.record-text').textContent = 'Kaydediliyor...';
         elements.publishBtn.style.display = 'none';
+        if (elements.voiceEffects) elements.voiceEffects.style.display = 'none';
 
         // Timer
         let secs = 0;
@@ -969,6 +996,7 @@ function stopRecording() {
     elements.recordBtn.classList.remove('recording');
     elements.recordBtn.querySelector('.record-text').textContent = "Tekrar Dene";
     elements.publishBtn.style.display = 'block';
+    if (elements.voiceEffects) elements.voiceEffects.style.display = 'block';
 
     // Show Publish Button with animation
     elements.publishBtn.style.animation = "float 2s infinite ease-in-out";
@@ -1003,6 +1031,7 @@ document.getElementById('publishBtn').addEventListener('click', () => {
     elements.timer.textContent = "00:00";
     elements.recordBtn.querySelector('.record-text').textContent = "Kayda Başla";
     elements.publishBtn.style.display = "none";
+    if (elements.voiceEffects) elements.voiceEffects.style.display = "none";
     state.recordedBlob = null;
 });
 
