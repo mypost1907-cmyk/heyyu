@@ -30,8 +30,68 @@ const state = {
     }
 };
 
+// ==================== Database Management (IndexedDB) ====================
+const DB_NAME = 'heyyu_db';
+const DB_VERSION = 1;
+const STORE_NAME = 'posts';
+
+function initDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+            }
+        };
+
+        request.onsuccess = (event) => resolve(event.target.result);
+        request.onerror = (event) => reject(event.target.error);
+    });
+}
+
+async function savePostDB(post) {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+
+        // Convert Blob to ArrayBuffer for storage if necessary,
+        // but IndexedDB supports Blobs directly in modern browsers.
+        const request = store.put(post);
+
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function deletePostDB(id) {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.delete(id);
+
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function getAllPostsDB() {
+    const db = await initDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readonly');
+        const store = transaction.objectStore(STORE_NAME);
+        const request = store.getAll();
+
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
 // ==================== Mock Data Generation ====================
-const mockUsers = [
+let mockUsers = [
     { name: 'Cem Yılmaz', username: '@cmylmz', bio: 'Komedyen, Aktör, Karikatürist.', avatarColor: '#E63946', gender: 'male' },
     { name: 'Tarkan', username: '@tarkan', bio: 'Megastar', avatarColor: '#1D3557', gender: 'male' },
     { name: 'Elon Musk', username: '@elonmusk', bio: 'Mars & Cars 🚀', avatarColor: '#457B9D', gender: 'male' },
@@ -86,7 +146,8 @@ const elements = {
     homeBtn: document.getElementById('homeBtn'),
     exploreBtn: document.getElementById('exploreBtn'),
     notificationsBtn: document.getElementById('notificationsBtn'),
-    profileBtn: document.getElementById('profileBtn')
+    profileBtn: document.getElementById('profileBtn'),
+    searchInput: document.querySelector('.search-input')
 };
 
 // ==================== Audio Generation (Speech Synthesis) ====================
@@ -265,23 +326,98 @@ function initDemoData() {
     state.currentUser.stats.posts = state.posts.filter(p => p.user.username === state.currentUser.username).length;
 }
 
-// ==================== Helper: Parse Hashtags ====================
-function parseText(text) {
+function renderStories() {
+    const container = document.getElementById('storiesContainer');
+    if (!container) return;
+
+    // Keep the "Create Story" item
+    const createStoryHTML = `
+        <div class="story-item create-story" onclick="showToast('Hikaye özelliği yakında!', 'info')">
+            <div class="story-avatar">
+                <div class="add-story-icon">+</div>
+                <img src="${state.currentUser.avatar}" alt="My Story">
+            </div>
+            <span>Hikayen</span>
+        </div>
+    `;
+
+    // Generate random stories from mockUsers
+    const storyUsers = [...mockUsers].sort(() => 0.5 - Math.random()).slice(0, 8);
+
+    let storiesHTML = '';
+    if (storyUsers.length > 0) {
+        storiesHTML = storyUsers.map(user => `
+            <div class="story-item" onclick="showToast('${user.name} kullanıcısının hikayesi oynatılıyor...', 'info')">
+                <div class="story-avatar">
+                    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect fill='${user.avatarColor.replace('#', '%23')}' width='40' height='40'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='16' font-family='Arial'%3E${user.name[0]}%3C/text%3E%3C/svg%3E" alt="${user.name}">
+                </div>
+                <span>${user.name.split(' ')[0]}</span>
+            </div>
+        `).join('');
+    } else {
+        storiesHTML = `
+            <div class="empty-stories-placeholder">
+                Hikaye bulunamadı
+            </div>
+        `;
+    }
+
+    container.innerHTML = createStoryHTML + storiesHTML;
+}
+
+// ==================== Helper: Parse Hashtags & Security ====================
+function escapeHTML(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function parseText(text, searchQuery = '') {
     if (!text) return '';
-    // Hashtag'leri linke çevir (basit regex)
-    // Scrolling text için her kelimeyi span içine al ve offset index ekle
+
+    // Sanitize input
+    const sanitizedText = escapeHTML(text);
 
     let currentIndex = 0;
+    const words = sanitizedText.split(' ');
 
-    // Geçici olarak HTML taglerini temizleyelim veya basitçe boşluklardan bölelim
-    // Daha sağlam bir çözüm için text node traverse gerekir ama bu demo için split yeterli
+    return words.map(word => {
+        const wordIndex = sanitizedText.indexOf(word, currentIndex);
+        currentIndex = wordIndex + word.length;
 
-    return text.replace(/#(\w+)/g, '<span class="hashtag" onclick="handleHashtagClick(\'$1\')">#$1</span>')
-        .split(' ').map(word => {
-            const span = `<span class="word" data-index="${text.indexOf(word, currentIndex)}">${word}</span>`;
-            currentIndex = text.indexOf(word, currentIndex) + word.length;
-            return span;
-        }).join(' ');
+        // Use unique markers to avoid HTML tag corruption
+        const MARK_S = '___MS___';
+        const MARK_E = '___ME___';
+        const TAG_S = '___TS___';
+        const TAG_E = '___TE___';
+
+        let result = word;
+
+        // 1. Mark Hashtags
+        result = result.replace(/#(\w+)/g, `${TAG_S}$1${TAG_E}`);
+
+        // 2. Mark Search Highlights
+        if (searchQuery && searchQuery.length > 1) {
+            const escapedQuery = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escapedQuery})`, 'gi');
+            result = result.replace(regex, `${MARK_S}$1${MARK_E}`);
+        }
+
+        // 3. Final HTML Conversion
+        result = result
+            .split(MARK_S).join('<mark class="highlight">')
+            .split(MARK_E).join('</mark>');
+
+        // Handle tags with capture groups for replacement
+        // Using (.*?) to allow for search highlights already injected into the tag
+        result = result.replace(new RegExp(`${TAG_S}(.*?)${TAG_E}`, 'g'), (match, content) => {
+            // The tag name for the click handler should be the plain text without markers
+            const tagName = content.replace(new RegExp(MARK_S, 'g'), '').replace(new RegExp(MARK_E, 'g'), '');
+            return `<span class="hashtag" onclick="handleHashtagClick('${tagName}')">#${content}</span>`;
+        });
+
+        return `<span class="word" data-index="${wordIndex}">${result}</span>`;
+    }).join(' ');
 }
 
 window.handleHashtagClick = (tag) => {
@@ -295,8 +431,70 @@ window.handleHashtagClick = (tag) => {
     if (sub) sub.textContent = 'Etiketiyle paylaşılan sesler';
 };
 
+// ==================== UI Utils ====================
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+
+    let icon = '🔔';
+    if (type === 'success') icon = '✅';
+    if (type === 'error') icon = '❌';
+
+    toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.animation = 'fadeOut 0.3s ease-in forwards';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function toggleLoading(show) {
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) overlay.style.display = show ? 'flex' : 'none';
+}
+
+function showConfirm(title, message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        const titleEl = document.getElementById('confirmTitle');
+        const msgEl = document.getElementById('confirmMessage');
+        const okBtn = document.getElementById('confirmOk');
+        const cancelBtn = document.getElementById('confirmCancel');
+
+        titleEl.textContent = title;
+        msgEl.textContent = message;
+        modal.style.display = 'flex';
+
+        const handleOk = () => {
+            modal.style.display = 'none';
+            cleanup();
+            resolve(true);
+        };
+
+        const handleCancel = () => {
+            modal.style.display = 'none';
+            cleanup();
+            resolve(false);
+        };
+
+        const cleanup = () => {
+            okBtn.removeEventListener('click', handleOk);
+            cancelBtn.removeEventListener('click', handleCancel);
+        };
+
+        okBtn.addEventListener('click', handleOk, { once: true });
+        cancelBtn.addEventListener('click', handleCancel, { once: true });
+    });
+}
+
 // ==================== Page Navigation ====================
 function showPage(pageName) {
+    toggleLoading(true);
+
     state.currentPage = pageName;
 
     // Reset filters if not exploring
@@ -323,6 +521,8 @@ function showPage(pageName) {
             renderProfilePage();
             break;
     }
+
+    setTimeout(() => toggleLoading(false), 400); // Simulate network delay
 }
 
 // ==================== Render Functions ====================
@@ -344,6 +544,9 @@ function renderHomePage() {
         </aside>
 
         <main class="feed">
+            <!-- Stories Section -->
+            <div class="stories-container" id="storiesContainer"></div>
+
              <!-- Record Section (Aynı Kalıyor) -->
             <div class="record-section" id="recordSection">
                 <style>
@@ -421,6 +624,7 @@ function renderHomePage() {
     `;
 
     initializeHomePageElements();
+    renderStories();
     initVisualizer();
     renderPosts(state.posts.slice(0, 50)); // İlk 50 postu göster (performans için)
 }
@@ -485,9 +689,9 @@ function renderProfilePage() {
                         <img src="${state.currentUser.avatar}" alt="${state.currentUser.name}">
                     </div>
                     <div class="profile-details">
-                        <h1>${state.currentUser.name} <span style="color:#1DA1F2; font-size:1.2rem">✓</span></h1>
-                        <p class="profile-username">${state.currentUser.username}</p>
-                        <p class="profile-bio">${state.currentUser.bio}</p>
+                        <h1>${escapeHTML(state.currentUser.name)} <span style="color:#1DA1F2; font-size:1.2rem">✓</span></h1>
+                        <p class="profile-username">${escapeHTML(state.currentUser.username)}</p>
+                        <p class="profile-bio">${escapeHTML(state.currentUser.bio)}</p>
                         
                         <div class="profile-stats">
                             <div class="profile-stat">
@@ -591,7 +795,7 @@ function renderNotificationsPage() {
 }
 
 // ==================== Post Rendering & Audio ====================
-function renderPosts(postsToRender) {
+function renderPosts(postsToRender, searchQuery = '') {
     const container = document.getElementById('postsContainer');
     if (!container) return;
 
@@ -604,13 +808,13 @@ function renderPosts(postsToRender) {
          <div class="post-card fade-in" data-post-id="${post.id}">
             <div class="post-header">
                 <div class="post-avatar">
-                    <img src="${post.user.avatar}" alt="${post.user.name}">
+                    <img src="${post.user.avatar}" alt="${escapeHTML(post.user.name)}">
                 </div>
                 <div class="post-user-info">
-                    <div class="post-user-name">${post.user.name} 
+                    <div class="post-user-name">${escapeHTML(post.user.name)}
                         ${['Cem Yılmaz', 'Tarkan', 'Elon Musk', 'Gökhan'].includes(post.user.name) ? '<span style="color:#1DA1F2; font-size:0.9rem">✓</span>' : ''}
                     </div>
-                    <div class="post-user-username">${post.user.username}</div>
+                    <div class="post-user-username">${escapeHTML(post.user.username)}</div>
                 </div>
                 <div class="post-time">${getTimeAgo(post.timestamp)}</div>
             </div>
@@ -641,7 +845,7 @@ function renderPosts(postsToRender) {
             </div>
             
             <div class="post-transcript">
-                ${parseText(post.transcript)}
+                ${parseText(post.transcript, searchQuery)}
             </div>
             
             <div class="post-actions">
@@ -675,6 +879,14 @@ function renderPosts(postsToRender) {
                          <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
                     </svg>
                 </button>
+                ${post.user.username === state.currentUser.username ? `
+                <button class="action-btn delete-btn" onclick="deletePost(${post.id})" title="Sil">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                </button>
+                ` : ''}
             </div>
         </div>
     `).join('');
@@ -689,6 +901,7 @@ window.toggleLike = (id) => {
     if (post) {
         post.liked = !post.liked;
         post.likes += post.liked ? 1 : -1;
+        if (post.liked) showToast("Ses beğenildi! ❤️", "success");
         // Re-render only buttons would be better, but full render is easier for now
         renderPageCurrent();
     }
@@ -698,9 +911,29 @@ window.toggleSave = (id) => {
     const post = state.posts.find(p => p.id === id);
     if (post) {
         post.saved = !post.saved;
+        if (post.saved) showToast("Ses kaydedildi! 🔖", "success");
         renderPageCurrent();
     }
 }
+
+window.deletePost = async (id) => {
+    const confirmed = await showConfirm("Sesi Sil?", "Bu sesi kalıcı olarak silmek istediğinize emin misiniz?");
+    if (!confirmed) return;
+
+    try {
+        await deletePostDB(id);
+        state.posts = state.posts.filter(p => p.id !== id);
+
+        // Update user stats
+        if (state.currentUser.stats.posts > 0) state.currentUser.stats.posts--;
+
+        renderPageCurrent();
+        showToast("Ses kalıcı olarak silindi. 🗑️", "info");
+    } catch (err) {
+        console.error("Delete error:", err);
+        showToast("Silme işlemi sırasında bir hata oluştu.", "error");
+    }
+};
 
 window.toggleShare = (id) => {
     const post = state.posts.find(p => p.id === id);
@@ -708,7 +941,7 @@ window.toggleShare = (id) => {
         post.shares++;
         const shareCountEl = document.getElementById(`share-count-${id}`);
         if (shareCountEl) shareCountEl.textContent = post.shares;
-        alert("Ses paylaşıldı! 🚀");
+        showToast("Ses paylaşıldı! 🚀", "success");
     }
 }
 window.toggleSpeed = (id) => {
@@ -751,6 +984,7 @@ window.setEffect = (effect, btn) => {
 let commentRecorder = null;
 let commentChunks = [];
 let commentTimer = null;
+let commentDuration = 0;
 
 window.startCommentRecording = async (postId) => {
     const btn = document.getElementById(`comment-btn-${postId}`);
@@ -758,7 +992,6 @@ window.startCommentRecording = async (postId) => {
 
     // Eğer zaten kaydediyorsa durdur
     if (btn.classList.contains('recording')) {
-        // Durdur ve "Gönderildi" de
         stopCommentRecording(postId);
         return;
     }
@@ -767,11 +1000,12 @@ window.startCommentRecording = async (postId) => {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         commentRecorder = new MediaRecorder(stream);
         commentChunks = [];
+        commentDuration = 0;
 
         commentRecorder.ondataavailable = e => commentChunks.push(e.data);
         commentRecorder.onstop = () => {
-            // Fake sending
-            alert("Sesli yorumunuz 6 saniye olarak kaydedildi ve gönderildi! 🚀");
+            // Success feedback with exact duration
+            showToast(`Sesli yorumunuz (${commentDuration} sn) başarıyla kaydedildi ve gönderildi! 🚀`, "success");
             stream.getTracks().forEach(t => t.stop());
         };
 
@@ -783,6 +1017,7 @@ window.startCommentRecording = async (postId) => {
         let timeLeft = 6;
         commentTimer = setInterval(() => {
             timeLeft--;
+            commentDuration++;
             btn.innerHTML = `<span style="color:red">● ${timeLeft}sn</span> Kaydediyor...`;
             if (timeLeft <= 0) {
                 stopCommentRecording(postId);
@@ -946,9 +1181,83 @@ function drawDummyWaveform(id) {
 // ... (Burada mevcut kayıt mantığı korunarak entegre edilecek, özet geçiyorum)
 // [Existing recording logic for new posts] ...
 
+async function publishPost() {
+    if (!state.recordedBlob) return;
+
+    const newPost = {
+        id: Date.now(),
+        user: state.currentUser,
+        transcript: state.transcript || "Yeni ses kaydı 🎙️ #heyyu",
+        audioBlob: state.recordedBlob,
+        audioUrl: URL.createObjectURL(state.recordedBlob),
+        effect: state.currentEffect || 'normal',
+        timestamp: new Date(),
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        saved: false,
+        liked: false
+    };
+
+    try {
+        console.log("Saving post to DB:", newPost.id);
+        await savePostDB(newPost);
+        console.log("Saved post to DB successfully");
+        state.posts.unshift(newPost);
+        state.currentUser.stats.posts++;
+
+        if (state.currentPage !== 'home') showPage('home');
+        else renderHomePage();
+
+        showToast("Sesiniz başarıyla paylaşıldı! ✨", "success");
+
+        // Reset UI
+        if (document.getElementById('previewBtn')) {
+            document.getElementById('previewBtn').style.display = 'none';
+        }
+        elements.timer.textContent = "00:00";
+        elements.recordBtn.querySelector('.record-text').textContent = "Kayda Başla";
+        elements.publishBtn.style.display = "none";
+        if (elements.voiceEffects) elements.voiceEffects.style.display = "none";
+        state.recordedBlob = null;
+        state.transcript = '';
+    } catch (err) {
+        console.error("Publish error:", err);
+        showToast("Paylaşım sırasında bir hata oluştu.", "error");
+    }
+}
+
 async function startRecording() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        // Speech Recognition setup
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            state.recognition = new SpeechRecognition();
+            state.recognition.lang = 'tr-TR';
+            state.recognition.continuous = true;
+            state.recognition.interimResults = true;
+            state.transcript = '';
+
+            state.recognition.onresult = (event) => {
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        state.transcript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                const display = document.getElementById('transcriptDisplay');
+                if (display) {
+                    display.textContent = state.transcript + interimTranscript;
+                    display.style.display = 'block';
+                }
+            };
+
+            state.recognition.start();
+        }
 
         state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
         state.analyser = state.audioContext.createAnalyser();
@@ -968,6 +1277,9 @@ async function startRecording() {
         state.isRecording = true;
 
         // UI Updates
+        if (document.getElementById('previewBtn')) {
+            document.getElementById('previewBtn').style.display = 'none';
+        }
         elements.recordBtn.classList.add('recording');
         elements.recordBtn.querySelector('.record-text').textContent = 'Kaydediliyor...';
         elements.publishBtn.style.display = 'none';
@@ -991,49 +1303,43 @@ async function startRecording() {
 function stopRecording() {
     if (!state.isRecording) return;
     state.mediaRecorder.stop();
+
+    if (state.recognition) {
+        state.recognition.stop();
+    }
+
     state.isRecording = false;
     clearInterval(state.timerInterval);
     elements.recordBtn.classList.remove('recording');
     elements.recordBtn.querySelector('.record-text').textContent = "Tekrar Dene";
-    elements.publishBtn.style.display = 'block';
+
+    // Add Preview Button if not exists
+    if (!document.getElementById('previewBtn')) {
+        const previewBtn = document.createElement('button');
+        previewBtn.id = 'previewBtn';
+        previewBtn.className = 'preview-btn';
+        previewBtn.innerHTML = '<span>▶️</span> Dinle';
+        previewBtn.onclick = () => {
+            if (state.recordedBlob) {
+                const url = URL.createObjectURL(state.recordedBlob);
+                const audio = new Audio(url);
+                audio.play();
+                showToast("Kaydınız oynatılıyor...", "info");
+            }
+        };
+        elements.publishBtn.parentNode.insertBefore(previewBtn, elements.publishBtn);
+    } else {
+        document.getElementById('previewBtn').style.display = 'flex';
+    }
+
+    elements.publishBtn.style.display = 'flex';
     if (elements.voiceEffects) elements.voiceEffects.style.display = 'block';
 
     // Show Publish Button with animation
     elements.publishBtn.style.animation = "float 2s infinite ease-in-out";
 }
 
-document.getElementById('publishBtn').addEventListener('click', () => {
-    if (!state.recordedBlob) return;
-
-    // Create new post
-    const newPost = {
-        id: Date.now(),
-        user: state.currentUser,
-        transcript: "Yeni ses kaydı 🎙️ #heyyu",
-        audioBlob: state.recordedBlob,
-        audioUrl: URL.createObjectURL(state.recordedBlob),
-        effect: state.currentEffect, // Save selected effect
-        timestamp: new Date(),
-        likes: 0,
-        comments: 0,
-        shares: 0,
-        saved: false,
-        liked: false
-    };
-
-    state.posts.unshift(newPost);
-
-    // Eğer home'da değilsek home'a git
-    if (state.currentPage !== 'home') showPage('home');
-    else renderHomePage();
-
-    // Reset UI
-    elements.timer.textContent = "00:00";
-    elements.recordBtn.querySelector('.record-text').textContent = "Kayda Başla";
-    elements.publishBtn.style.display = "none";
-    if (elements.voiceEffects) elements.voiceEffects.style.display = "none";
-    state.recordedBlob = null;
-});
+document.getElementById('publishBtn').addEventListener('click', publishPost);
 
 // Event Listeners for Nav
 elements.homeBtn?.addEventListener('click', () => showPage('home'));
@@ -1042,37 +1348,39 @@ elements.notificationsBtn?.addEventListener('click', () => showPage('notificatio
 elements.profileBtn?.addEventListener('click', () => showPage('profile'));
 elements.recordBtn?.addEventListener('click', () => state.isRecording ? stopRecording() : startRecording());
 
+// Search Logic
+elements.searchInput?.addEventListener('input', (e) => {
+    const query = e.target.value.toLowerCase();
+    if (query.length > 1) {
+        const filteredPosts = state.posts.filter(post =>
+            post.transcript.toLowerCase().includes(query) ||
+            post.user.name.toLowerCase().includes(query) ||
+            post.user.username.toLowerCase().includes(query)
+        );
+        renderPosts(filteredPosts, query);
+
+        // If not on home or explore, maybe switch to explore or just stay on current page but show results
+        // For now, just stay on current page and update postsContainer
+    } else if (query.length === 0) {
+        renderPageCurrent();
+    }
+});
+
 function initializeHomePageElements() {
     // Re-bind elements after innerHTML refresh
     elements.recordBtn = document.getElementById('recordBtn');
     elements.timer = document.getElementById('timer');
     elements.publishBtn = document.getElementById('publishBtn');
+    elements.transcriptDisplay = document.getElementById('transcriptDisplay');
+    elements.visualizer = document.getElementById('visualizer');
+
     // ... re-add listeners if needed, mostly handled by onclick in HTML attributes for this scale
     // Complex listeners:
     if (elements.recordBtn) {
         elements.recordBtn.onclick = () => state.isRecording ? stopRecording() : startRecording();
     }
     if (elements.publishBtn) {
-        elements.publishBtn.onclick = () => {
-            // Logic repeated here or extracted
-            if (!state.recordedBlob) return;
-            const newPost = {
-                id: Date.now(),
-                user: state.currentUser,
-                transcript: state.transcript || "Yeni ses kaydı 🎙️ #heyyu",
-                audioBlob: state.recordedBlob,
-                audioUrl: URL.createObjectURL(state.recordedBlob),
-                effect: 'normal',
-                timestamp: new Date(),
-                likes: 0, comments: 0, shares: 0, saved: false, liked: false
-            };
-            state.posts.unshift(newPost);
-            state.currentUser.stats.posts++;
-            renderHomePage();
-            elements.publishBtn.style.display = "none";
-            elements.timer.textContent = "00:00";
-            elements.recordBtn.querySelector('.record-text').textContent = "Kayda Başla";
-        };
+        elements.publishBtn.onclick = publishPost;
     }
 }
 
@@ -1104,8 +1412,14 @@ function initVisualizer() {
         let x = 0;
 
         for (let i = 0; i < bufferLength; i++) {
-            const barHeight = dataArray[i] / 2;
-            ctx.fillStyle = `rgb(${barHeight + 100}, 50, 200)`;
+            const barHeight = dataArray[i] / 1.5;
+
+            // Create gradient for each bar
+            const gradient = ctx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
+            gradient.addColorStop(0, '#667eea');
+            gradient.addColorStop(1, '#764ba2');
+
+            ctx.fillStyle = gradient;
             ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
             x += barWidth + 1;
         }
@@ -1162,6 +1476,27 @@ function audioBufferToBlob(audioBuffer) {
 }
 
 // Init
-initDemoData();
-renderHomePage();
-console.log("Heyyu 2.0 Loaded with 100+ items");
+async function initApp() {
+    initDemoData();
+    try {
+        const savedPosts = await getAllPostsDB();
+        if (savedPosts && savedPosts.length > 0) {
+            // Add saved posts to state and ensure timestamps are Date objects
+            const processedSavedPosts = savedPosts.map(p => ({
+                ...p,
+                timestamp: new Date(p.timestamp)
+            }));
+            state.posts.unshift(...processedSavedPosts);
+            // Re-sort to maintain chronological order
+            state.posts.sort((a, b) => b.timestamp - a.timestamp);
+            // Update user stats
+            state.currentUser.stats.posts = state.posts.filter(p => p.user.username === state.currentUser.username).length;
+        }
+    } catch (err) {
+        console.error("Failed to load saved posts:", err);
+    }
+    renderHomePage();
+    console.log("Heyyu 2.0 Loaded with persistent storage");
+}
+
+initApp();

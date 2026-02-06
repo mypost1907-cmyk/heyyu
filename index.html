@@ -133,6 +133,18 @@
 
         <!-- Main Feed -->
         <main class="feed">
+            <!-- Stories Section -->
+            <div class="stories-container" id="storiesContainer">
+                <div class="story-item create-story">
+                    <div class="story-avatar">
+                        <div class="add-story-icon">+</div>
+                        <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect fill='%23667eea' width='40' height='40'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='white' font-size='16' font-family='Arial'%3EG%3C/text%3E%3C/svg%3E" alt="My Story">
+                    </div>
+                    <span>Hikayen</span>
+                </div>
+                <!-- Stories will be dynamically added here -->
+            </div>
+
             <!-- Record Section -->
             <div class="record-section" id="recordSection">
                 <div class="record-header">
@@ -264,6 +276,26 @@
             <line x1="8" y1="23" x2="16" y2="23"></line>
         </svg>
     </button>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Confirm Modal -->
+    <div id="confirmModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h3 id="confirmTitle">Emin misiniz?</h3>
+            <p id="confirmMessage">Bu işlem geri alınamaz.</p>
+            <div class="modal-actions">
+                <button id="confirmCancel" class="modal-btn secondary">Vazgeç</button>
+                <button id="confirmOk" class="modal-btn primary">Evet, Sil</button>
+            </div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>
