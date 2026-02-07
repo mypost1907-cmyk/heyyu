@@ -472,16 +472,44 @@ body::before {
     bottom: var(--spacing-lg);
     left: var(--spacing-lg);
     right: var(--spacing-lg);
-    background: rgba(0, 0, 0, 0.7);
-    backdrop-filter: blur(10px);
-    padding: var(--spacing-md);
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(15px);
+    padding: var(--spacing-md) var(--spacing-lg);
     border-radius: var(--radius-md);
+    border: 1px solid rgba(102, 126, 234, 0.3);
     color: var(--text-primary);
-    font-size: 1.1rem;
-    line-height: 1.4;
-    max-height: 80px;
-    overflow: hidden;
+    font-size: 1.2rem;
+    font-weight: 500;
+    line-height: 1.6;
+    max-height: 100px;
+    overflow-y: auto;
+    overflow-x: hidden;
     animation: slideIn 0.3s ease;
+    display: none; /* Hidden by default */
+    
+    /* Smooth scrolling for auto-scroll effect */
+    scroll-behavior: smooth;
+    
+    /* Hide scrollbar but keep functionality */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(102, 126, 234, 0.5) transparent;
+}
+
+.transcript-display::-webkit-scrollbar {
+    width: 4px;
+}
+
+.transcript-display::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.transcript-display::-webkit-scrollbar-thumb {
+    background: rgba(102, 126, 234, 0.5);
+    border-radius: 2px;
+}
+
+.transcript-display::-webkit-scrollbar-thumb:hover {
+    background: rgba(102, 126, 234, 0.7);
 }
 
 @keyframes slideIn {

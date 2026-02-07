@@ -957,16 +957,32 @@ async function startRecording() {
         state.mediaRecorder.onstop = () => {
             state.recordedBlob = new Blob(state.audioChunks, { type: 'audio/webm' });
             stream.getTracks().forEach(t => t.stop());
+
+            // Stop speech recognition when recording stops
+            if (state.recognition) {
+                state.recognition.stop();
+            }
         };
 
         state.mediaRecorder.start();
         state.isRecording = true;
+
+        // Initialize Speech Recognition
+        state.transcript = '';
+        initSpeechRecognition();
 
         // UI Updates
         elements.recordBtn.classList.add('recording');
         elements.recordBtn.querySelector('.record-text').textContent = 'Kaydediliyor...';
         elements.publishBtn.style.display = 'none';
         if (elements.voiceEffects) elements.voiceEffects.style.display = 'none';
+
+        // Clear and show transcript display
+        const transcriptDisplay = document.getElementById('transcriptDisplay');
+        if (transcriptDisplay) {
+            transcriptDisplay.textContent = '';
+            transcriptDisplay.style.display = 'block';
+        }
 
         // Timer
         let secs = 0;
@@ -983,15 +999,97 @@ async function startRecording() {
     }
 }
 
+// Initialize Speech Recognition for real-time transcription
+function initSpeechRecognition() {
+    // Check if browser supports speech recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+        console.log('Speech recognition not supported in this browser');
+        return;
+    }
+
+    state.recognition = new SpeechRecognition();
+    state.recognition.lang = 'tr-TR'; // Turkish language
+    state.recognition.continuous = true; // Keep recognizing
+    state.recognition.interimResults = true; // Show interim results
+
+    state.recognition.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalTranscript += transcript + ' ';
+            } else {
+                interimTranscript += transcript;
+            }
+        }
+
+        // Update state transcript with final results
+        if (finalTranscript) {
+            state.transcript += finalTranscript;
+        }
+
+        // Display scrolling transcript
+        const transcriptDisplay = document.getElementById('transcriptDisplay');
+        if (transcriptDisplay) {
+            const fullText = state.transcript + interimTranscript;
+            transcriptDisplay.textContent = fullText;
+
+            // Auto-scroll to show latest text (scrolling effect)
+            transcriptDisplay.scrollTop = transcriptDisplay.scrollHeight;
+        }
+    };
+
+    state.recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+    };
+
+    state.recognition.onend = () => {
+        // Restart if still recording
+        if (state.isRecording && state.recognition) {
+            try {
+                state.recognition.start();
+            } catch (e) {
+                console.log('Recognition restart failed:', e);
+            }
+        }
+    };
+
+    try {
+        state.recognition.start();
+    } catch (e) {
+        console.error('Failed to start recognition:', e);
+    }
+}
+
 function stopRecording() {
     if (!state.isRecording) return;
     state.mediaRecorder.stop();
     state.isRecording = false;
     clearInterval(state.timerInterval);
+
+    // Stop speech recognition
+    if (state.recognition) {
+        try {
+            state.recognition.stop();
+        } catch (e) {
+            console.log('Recognition already stopped');
+        }
+    }
+
     elements.recordBtn.classList.remove('recording');
     elements.recordBtn.querySelector('.record-text').textContent = "Tekrar Dene";
     elements.publishBtn.style.display = 'block';
     if (elements.voiceEffects) elements.voiceEffects.style.display = 'block';
+
+    // Keep transcript display visible until publish
+    const transcriptDisplay = document.getElementById('transcriptDisplay');
+    if (transcriptDisplay && state.transcript) {
+        transcriptDisplay.textContent = state.transcript || 'Transkript oluşturulamadı';
+    }
 
     // Show Publish Button with animation
     elements.publishBtn.style.animation = "float 2s infinite ease-in-out";
@@ -1000,11 +1098,14 @@ function stopRecording() {
 document.getElementById('publishBtn').addEventListener('click', () => {
     if (!state.recordedBlob) return;
 
+    // Use real transcript or default text
+    const finalTranscript = state.transcript.trim() || "Yeni ses kaydı 🎙️ #heyyu";
+
     // Create new post
     const newPost = {
         id: Date.now(),
         user: state.currentUser,
-        transcript: "Yeni ses kaydı 🎙️ #heyyu",
+        transcript: finalTranscript,
         audioBlob: state.recordedBlob,
         audioUrl: URL.createObjectURL(state.recordedBlob),
         effect: state.currentEffect, // Save selected effect
@@ -1013,7 +1114,8 @@ document.getElementById('publishBtn').addEventListener('click', () => {
         comments: 0,
         shares: 0,
         saved: false,
-        liked: false
+        liked: false,
+        isMock: false // Real user recording
     };
 
     state.posts.unshift(newPost);
@@ -1022,12 +1124,22 @@ document.getElementById('publishBtn').addEventListener('click', () => {
     if (state.currentPage !== 'home') showPage('home');
     else renderHomePage();
 
-    // Reset UI
+    // Reset UI and state
     elements.timer.textContent = "00:00";
     elements.recordBtn.querySelector('.record-text').textContent = "Kayda Başla";
     elements.publishBtn.style.display = "none";
     if (elements.voiceEffects) elements.voiceEffects.style.display = "none";
+
+    // Hide and clear transcript display
+    const transcriptDisplay = document.getElementById('transcriptDisplay');
+    if (transcriptDisplay) {
+        transcriptDisplay.textContent = '';
+        transcriptDisplay.style.display = 'none';
+    }
+
+    // Reset state
     state.recordedBlob = null;
+    state.transcript = '';
 });
 
 // Event Listeners for Nav
